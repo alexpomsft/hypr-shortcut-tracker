@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_file="$HOME/.config/hypr/hyprland.lua"
+
+python3 - "$config_file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+block = (
+    '\nrequire("default.hypr.helpers")\n'
+    'local shortcut_tracker = require("hypr.shortcut_tracker")\n'
+    'shortcut_tracker.start()'
+)
+text = text.replace(block, "", 1)
+text = text.replace("\nshortcut_tracker.finish()\n", "\n", 1)
+path.write_text(text)
+PY
+
+rm -f -- "$HOME/.local/bin/hypr-shortcuts"
+rm -f -- "$HOME/.config/hypr/shortcut_tracker.lua"
+
+echo "Uninstalled Hypr Shortcut Tracker."
+echo "Usage history remains in ~/.local/state/hypr-shortcut-tracker."
+

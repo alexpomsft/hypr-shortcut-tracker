@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+config_file="$HOME/.config/hypr/hyprland.lua"
+lua_target="$HOME/.config/hypr/shortcut_tracker.lua"
+bin_target="$HOME/.local/bin/hypr-shortcuts"
+
+mkdir -p -- "$HOME/.local/bin" "$HOME/.config/hypr"
+ln -sfn -- "$repo_dir/bin/hypr-shortcuts" "$bin_target"
+ln -sfn -- "$repo_dir/lua/shortcut_tracker.lua" "$lua_target"
+
+if ! grep -q 'require("hypr.shortcut_tracker")' "$config_file"; then
+  cp -- "$config_file" "$config_file.backup-shortcut-tracker-$(date +%Y%m%d-%H%M%S)"
+  python3 - "$config_file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+bootstrap = (
+    'dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") '
+    '.. "/default/hypr/bootstrap.lua")'
+)
+start = (
+    bootstrap
+    + '\n\nrequire("default.hypr.helpers")\n'
+    + 'local shortcut_tracker = require("hypr.shortcut_tracker")\n'
+    + "shortcut_tracker.start()"
+)
+if bootstrap not in text:
+    raise SystemExit("Could not find the Omarchy bootstrap line in hyprland.lua")
+text = text.replace(bootstrap, start, 1)
+text = text.rstrip() + "\n\nshortcut_tracker.finish()\n"
+path.write_text(text)
+PY
+fi
+
+echo "Installed Hypr Shortcut Tracker."
+echo "Run: hyprctl reload && hyprctl configerrors"
+
