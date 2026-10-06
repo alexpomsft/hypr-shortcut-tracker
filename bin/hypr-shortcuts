@@ -13,12 +13,91 @@ from pathlib import Path
 
 
 APP_NAME = "hypr-shortcut-tracker"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 STATE_DIR = Path(
     os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
 ) / APP_NAME
 DB_PATH = STATE_DIR / "usage.sqlite3"
 CATALOG_PATH = STATE_DIR / "bindings.tsv"
+
+FAMILIES = {
+    "workspace-switch": "Switch to workspace",
+    "workspace-move-window": "Move window to workspace",
+    "workspace-move-window-silent": "Move window silently to workspace",
+    "group-window-select": "Select window within a group",
+    "bar-panel-open": "Open bar panel",
+    "window-focus-direction": "Focus adjacent window",
+    "window-swap-direction": "Swap window",
+    "workspace-move-monitor": "Move workspace to another monitor",
+    "window-move-group": "Move window into adjacent group",
+    "window-resize-keyboard": "Resize window using keyboard",
+}
+FLAT_FIELDS = [
+    "shortcut", "description", "count", "share_percent", "first_used",
+    "last_used", "last_used_relative", "review",
+]
+GROUPED_FIELDS = FLAT_FIELDS + ["family_id", "used_bindings", "binding_count"]
+
+
+def normalize_shortcut(shortcut: str) -> str:
+    parts = [part.strip() for part in shortcut.split("+")]
+    return " + ".join([*sorted(part.upper() for part in parts[:-1]), parts[-1]])
+
+
+def build_family_bindings() -> dict[tuple[str, str], str]:
+    bindings = {}
+
+    def add(family: str, shortcut: str, description: str) -> None:
+        bindings[(normalize_shortcut(shortcut), description)] = family
+
+    for workspace in range(1, 11):
+        for family, modifiers in (
+            ("workspace-switch", "SUPER"),
+            ("workspace-move-window", "SUPER + SHIFT"),
+            ("workspace-move-window-silent", "SUPER + SHIFT + ALT"),
+        ):
+            add(
+                family,
+                f"{modifiers} + code:{workspace + 9}",
+                f"{FAMILIES[family]} {workspace}",
+            )
+    for index in range(1, 6):
+        add("group-window-select", f"SUPER + ALT + code:{index + 9}", f"Switch to group window {index}")
+    for index in range(1, 10):
+        add("bar-panel-open", f"SUPER + CTRL + code:{index + 9}", f"Bar panel {index}")
+
+    for key, direction, focus_direction, group_direction in (
+        ("LEFT", "left", "left", "left"),
+        ("RIGHT", "right", "right", "right"),
+        ("UP", "up", "above", "top"),
+        ("DOWN", "down", "below", "bottom"),
+    ):
+        add("window-focus-direction", f"SUPER + {key}", f"Focus on {focus_direction} window")
+        swap_direction = f"to the {direction}" if key in {"LEFT", "RIGHT"} else direction
+        add("window-swap-direction", f"SUPER + SHIFT + {key}", f"Swap window {swap_direction}")
+        add("workspace-move-monitor", f"SUPER + SHIFT + ALT + {key}", f"Move workspace to {direction} monitor")
+        add("window-move-group", f"SUPER + ALT + {key}", f"Move window to group on {group_direction}")
+
+    for modifiers, suffix in (
+        ("SUPER", ""),
+        ("SUPER + ALT", " a little"),
+        ("SUPER + CTRL", " a lot"),
+    ):
+        for extra, code, description in (
+            ("", 20, "Expand window left"),
+            ("", 21, "Shrink window left"),
+            (" + SHIFT", 20, "Shrink window up"),
+            (" + SHIFT", 21, "Expand window down"),
+        ):
+            add("window-resize-keyboard", f"{modifiers}{extra} + code:{code}", description + suffix)
+    return bindings
+
+
+FAMILY_BINDINGS = build_family_bindings()
+
+
+def family_for(shortcut: str, description: str) -> str | None:
+    return FAMILY_BINDINGS.get((normalize_shortcut(shortcut), description))
 
 
 def connect() -> sqlite3.Connection:
@@ -147,20 +226,67 @@ def report_rows(stale_days: int) -> list[dict[str, object]]:
                 "last_used": iso_time(last_used),
                 "last_used_relative": relative_time(last_used, now),
                 "review": review_hint(count, last_used, now, stale_days),
+                "_first_used_epoch": first_used or 0,
                 "_last_used_epoch": last_used or 0,
                 "_configured": shortcut in catalog,
+                "_family_id": family_for(shortcut, catalog[shortcut]) if shortcut in catalog else None,
             }
         )
     return rows
 
 
+def group_rows(
+    rows: list[dict[str, object]], stale_days: int, total: int | None = None
+) -> list[dict[str, object]]:
+    if total is None:
+        total = sum(int(row["count"]) for row in rows)
+    members: dict[str, list[dict[str, object]]] = {}
+    grouped = []
+    for row in rows:
+        family = row["_family_id"]
+        if family is None:
+            grouped.append({
+                **row,
+                "family_id": "",
+                "used_bindings": int(int(row["count"]) > 0),
+                "binding_count": 1,
+            })
+        else:
+            members.setdefault(str(family), []).append(row)
+
+    now = int(time.time())
+    for family, bindings in members.items():
+        used = [row for row in bindings if int(row["count"]) > 0]
+        count = sum(int(row["count"]) for row in bindings)
+        first_used = min((int(row["_first_used_epoch"]) for row in used), default=None)
+        last_used = max((int(row["_last_used_epoch"]) for row in used), default=None)
+        grouped.append({
+            "shortcut": "",
+            "description": FAMILIES[family],
+            "count": count,
+            "share_percent": round(count * 100 / total, 1) if total else 0.0,
+            "first_used": iso_time(first_used),
+            "last_used": iso_time(last_used),
+            "last_used_relative": relative_time(last_used, now),
+            "review": review_hint(count, last_used, now, stale_days),
+            "family_id": family,
+            "used_bindings": len(used),
+            "binding_count": len(bindings),
+            "_last_used_epoch": last_used or 0,
+        })
+    return grouped
+
+
 def sort_rows(rows: list[dict[str, object]], order: str) -> None:
+    def identity(row: dict[str, object]) -> str:
+        return str(row.get("family_id") or row["shortcut"])
+
     if order == "recent":
         rows.sort(
             key=lambda row: (
                 -int(row["_last_used_epoch"]),
                 -int(row["count"]),
-                str(row["shortcut"]),
+                identity(row),
             )
         )
     elif order == "review":
@@ -170,7 +296,7 @@ def sort_rows(rows: list[dict[str, object]], order: str) -> None:
                 priority[str(row["review"])],
                 int(row["count"]),
                 int(row["_last_used_epoch"]),
-                str(row["shortcut"]),
+                identity(row),
             )
         )
     else:
@@ -178,33 +304,45 @@ def sort_rows(rows: list[dict[str, object]], order: str) -> None:
             key=lambda row: (
                 -int(row["count"]),
                 -int(row["_last_used_epoch"]),
-                str(row["shortcut"]),
+                identity(row),
             )
         )
 
 
-def print_table(rows: list[dict[str, object]]) -> None:
+def print_table(rows: list[dict[str, object]], grouped: bool = False) -> None:
     if not rows:
         print("No shortcuts found. Reload Hyprland to generate the binding catalog.")
         return
     headers = ("COUNT", "SHARE", "LAST USED", "REVIEW", "SHORTCUT", "ACTION")
+    if grouped:
+        headers = ("COUNT", "SHARE", "LAST USED", "COVERAGE", "REVIEW", "SHORTCUT / FAMILY", "ACTION")
     rendered = [
         (
             str(row["count"]),
             f'{row["share_percent"]:.1f}%',
             str(row["last_used_relative"]),
             str(row["review"]),
-            str(row["shortcut"]),
+            str(row.get("family_id") or row["shortcut"]),
             str(row["description"]),
         )
         for row in rows
     ]
+    if grouped:
+        rendered = [
+            (
+                *values[:3],
+                f'{row["used_bindings"]}/{row["binding_count"]} used',
+                *values[3:],
+            )
+            for row, values in zip(rows, rendered)
+        ]
     widths = [
         max(len(headers[index]), *(len(row[index]) for row in rendered))
         for index in range(len(headers))
     ]
-    for index in (3, 4):
-        widths[index] = min(widths[index], 28 if index == 4 else 14)
+    review_index, shortcut_index = (4, 5) if grouped else (3, 4)
+    for index in (review_index, shortcut_index):
+        widths[index] = min(widths[index], 28 if index == shortcut_index else 14)
     print(
         "  ".join(
             header.ljust(widths[index]) for index, header in enumerate(headers)
@@ -220,7 +358,9 @@ def print_table(rows: list[dict[str, object]]) -> None:
         )
 
 
-def print_structured(rows: list[dict[str, object]], output_format: str) -> None:
+def print_structured(
+    rows: list[dict[str, object]], output_format: str, grouped: bool = False
+) -> None:
     public_rows = [
         {key: value for key, value in row.items() if not key.startswith("_")}
         for row in rows
@@ -231,16 +371,7 @@ def print_structured(rows: list[dict[str, object]], output_format: str) -> None:
         return
     writer = csv.DictWriter(
         sys.stdout,
-        fieldnames=list(public_rows[0]) if public_rows else [
-            "shortcut",
-            "description",
-            "count",
-            "share_percent",
-            "first_used",
-            "last_used",
-            "last_used_relative",
-            "review",
-        ],
+        fieldnames=GROUPED_FIELDS if grouped else FLAT_FIELDS,
     )
     writer.writeheader()
     writer.writerows(public_rows)
@@ -248,13 +379,23 @@ def print_structured(rows: list[dict[str, object]], output_format: str) -> None:
 
 def report(args: argparse.Namespace) -> int:
     rows = report_rows(args.stale_days)
+    total = sum(int(row["count"]) for row in rows)
+    if args.family:
+        rows = [row for row in rows if row["_family_id"] == args.family]
+    grouping = args.group_by or ("shortcut" if args.family else "family")
+    grouped = grouping == "family"
+    if grouped:
+        rows = group_rows(rows, args.stale_days, total)
     sort_rows(rows, args.sort)
     if args.limit:
         rows = rows[: args.limit]
     if args.format == "table":
-        print_table(rows)
+        if not rows and args.family:
+            print(f"No configured bindings match family '{args.family}'.")
+        else:
+            print_table(rows, grouped)
     else:
-        print_structured(rows, args.format)
+        print_structured(rows, args.format, grouped)
     return 0
 
 
@@ -311,6 +452,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_parser.add_argument("--stale-days", type=positive_int, default=30)
     report_parser.add_argument("--limit", type=positive_int)
+    report_parser.add_argument(
+        "--group-by", choices=("family", "shortcut"),
+        help="Group by action family (default) or show individual shortcuts.",
+    )
+    report_parser.add_argument(
+        "--family", choices=tuple(FAMILIES),
+        help="Show a family's individual bindings unless --group-by family is also specified.",
+    )
 
     subparsers.add_parser("status", help="Show tracker paths and totals.")
     reset_parser = subparsers.add_parser("reset", help="Delete usage history.")

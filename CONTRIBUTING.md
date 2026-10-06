@@ -26,7 +26,7 @@ your live database.
 
 | Path | Responsibility |
 | --- | --- |
-| `bin/hypr-shortcuts` | SQLite recording, reports, status, reset, and CLI parsing |
+| `bin/hypr-shortcuts` | SQLite recording, family rules/rollups, reports, status, reset, and CLI parsing |
 | `lua/shortcut_tracker.lua` | `o.bind` adapter, logging bindings, catalog publication |
 | `tools/configure.py` | Checked symlink/config installation and removal |
 | `install`, `uninstall` | Bash entry points to the configuration helper |
@@ -40,6 +40,10 @@ your live database.
 - Do not collect typed text, command arguments, windows, or clipboard data.
 - Keep state local and preserve existing history unless the user explicitly
   requests a reset.
+- Keep grouping in the reporting layer. Match known keys and descriptions
+  conservatively; do not merge unrelated actions by label alone. Preserve the
+  flat export schema behind `--group-by shortcut` and cover grouped exports,
+  filtering, coverage, sorting, and global share calculations with tests.
 - Refuse unfamiliar config edits instead of guessing. Back up and atomically
   replace config files when changes are required.
 - Avoid runtime dependencies and privileged operations.

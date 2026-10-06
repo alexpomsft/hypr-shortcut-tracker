@@ -25,6 +25,7 @@ logging. Just a Lua adapter, Python's standard library, and a local SQLite file.
 | What have I used lately? | Relative last-used time; exact timestamps in JSON/CSV |
 | What could I learn or repurpose? | Never-used and stale shortcuts, with action descriptions |
 | What changed in my configuration? | A refreshed catalog on each config load; removed shortcuts retain their history |
+| Can I see the bigger picture? | Action-family rollups with per-binding coverage and drill-down |
 
 Review hints are suggestions, not automatic edits. A rarely used lock,
 emergency, or accessibility shortcut may still be worth keeping.
@@ -86,12 +87,57 @@ hypr-shortcuts report                          # Most-used first
 hypr-shortcuts report --sort recent            # Most recently used first
 hypr-shortcuts report --sort review            # Unused/stale first
 hypr-shortcuts report --sort review --stale-days 14 --limit 20
+hypr-shortcuts report --group-by shortcut      # Original flat view
+hypr-shortcuts report --family workspace-switch # Expand workspace bindings
 hypr-shortcuts status
 hypr-shortcuts --version
 ```
 
-Reports include **COUNT**, **SHARE**, **LAST USED**, **REVIEW**, **SHORTCUT**, and
-**ACTION**. `--stale-days` defaults to 30; both it and `--limit` must be positive.
+Reports group known action families by default and include **COUNT**, **SHARE**,
+**LAST USED**, **COVERAGE**, **REVIEW**, **SHORTCUT / FAMILY**, and **ACTION**.
+`--stale-days` defaults to 30; both it and `--limit` must be positive.
+
+### Action families
+
+Grouping summarizes related actions without changing recording or storage.
+For example, workspace 1 through 10 appear as one `workspace-switch` row.
+
+| Family ID | Action |
+| --- | --- |
+| `workspace-switch` | Switch to a numbered workspace |
+| `workspace-move-window` | Move a window to a numbered workspace and follow |
+| `workspace-move-window-silent` | Move a window without following |
+| `group-window-select` | Select a numbered window within a group |
+| `bar-panel-open` | Open a numbered bar panel |
+| `window-focus-direction` | Focus an adjacent window |
+| `window-swap-direction` | Swap a window in a direction |
+| `workspace-move-monitor` | Move a workspace to another monitor |
+| `window-move-group` | Move a window into an adjacent group |
+| `window-resize-keyboard` | Resize with normal, fine, or coarse keyboard steps |
+
+Rules match both known Omarchy key patterns and their exact descriptions.
+Unknown/custom bindings, ambiguous multi-action descriptions, and removed
+bindings with only historical usage remain individual rows. Grouping does not
+blindly strip numbers or merge matching labels such as unrelated calendars.
+
+Each family sums its members' counts, recalculates its share of **all tracked
+invocations**, uses the earliest first-use and most recent last-use, and shows
+coverage such as `4/10 used`. `NEVER` / `LEARN / REMOVE` applies only when all
+members are unused. Partial coverage does not mean the remaining workspace
+targets or directions should be removed.
+
+The group's recency and review hint reflect its most recently used member;
+expand it to examine unused or stale variants, including resize precision:
+
+```bash
+hypr-shortcuts report --family workspace-switch
+hypr-shortcuts report --family window-resize-keyboard --sort review
+hypr-shortcuts report --family workspace-switch --group-by family # Just the summary
+```
+
+`--family` expands to the original flat rows unless `--group-by family` is
+explicitly requested. Shares remain global even when filtering a family.
+Grouping happens before sorting and applying `--limit`.
 
 | Review hint | Meaning |
 | --- | --- |
@@ -109,11 +155,23 @@ clock time, not time spent logged in.
 ```bash
 hypr-shortcuts report --format json > shortcuts.json
 hypr-shortcuts report --format csv > shortcuts.csv
+# Compatibility with the v0.1.0 flat export schema:
+hypr-shortcuts report --group-by shortcut --format json > shortcuts-flat.json
+hypr-shortcuts report --group-by shortcut --format csv > shortcuts-flat.csv
 ```
 
-Exports include exact first- and last-used timestamps with a local timezone
-offset, relative last-used time, count, share, description, and review hint.
-Treat exported history as personal usage data; review it before sharing.
+**Since v0.2.0, JSON and CSV are grouped by default too.** Scripts expecting the
+v0.1.0 schema must use `--group-by shortcut`. That view retains the existing
+fields: `shortcut`, `description`, `count`, `share_percent`, `first_used`,
+`last_used`, `last_used_relative`, and `review`.
+
+Grouped exports add `family_id`, `used_bindings`, and `binding_count`. Family
+rows have an empty `shortcut` and a stable `family_id`; individual rows have
+their original `shortcut` and an empty `family_id`. No per-member data is lost:
+use `--family` to export a family's members.
+
+Timestamps include a local timezone offset. Treat exported history as personal
+usage data; review it before sharing.
 
 ## How counting works
 
@@ -194,7 +252,7 @@ hyprctl reload
 hyprctl configerrors
 ```
 
-For a fixed version, check out a release tag such as `v0.1.0`. Do not use
+For a fixed version, check out a release tag such as `v0.2.0`. Do not use
 `git pull` while detached at a release tag; switch back to `main` first.
 
 Reset only when you intentionally want to start a new observation period:

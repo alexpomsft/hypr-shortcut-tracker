@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.0 - 2026-10-06
+
+### Added
+
+- Ten conservative action families covering numbered workspaces, grouped
+  windows, bar panels, directional actions, and keyboard resizing.
+- Summed counts, global usage shares, first/last timestamp extrema, and
+  used/configured binding coverage in family summaries.
+- `--family FAMILY_ID` drill-down into individual bindings, including unused
+  targets and normal/fine/coarse resize variants.
+- `--group-by shortcut` to retain the original flat report and export schema.
+
+### Changed
+
+- **Tables, JSON, and CSV group by family by default.** Existing consumers
+  expecting the v0.1.0 schema must explicitly pass `--group-by shortcut`.
+- Grouped exports add `family_id`, `used_bindings`, and `binding_count`.
+- Sorting and limits apply after rollup; filtered shares retain the global
+  denominator.
+
+### Compatibility and data
+
+Recording, the SQLite schema, and config integration are unchanged. Grouping
+does not require a reset or migration; resetting remains an explicit user
+action. Unknown/custom, ambiguous, and historical-only bindings are not
+automatically grouped.
+
 ## 0.1.0 - 2026-10-06
 
 First public release of the local-first Omarchy/Hyprland shortcut tracker.

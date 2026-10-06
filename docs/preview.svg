@@ -26,24 +26,25 @@
       <text x="62" y="287">COUNT</text>
       <text x="140" y="287">SHARE</text>
       <text x="225" y="287">LAST USED</text>
-      <text x="350" y="287">REVIEW</text>
-      <text x="515" y="287">SHORTCUT</text>
-      <text x="805" y="287">ACTION</text>
+      <text x="330" y="287">COVERAGE</text>
+      <text x="450" y="287">REVIEW</text>
+      <text x="610" y="287">SHORTCUT / FAMILY</text>
+      <text x="845" y="287">ACTION</text>
     </g>
     <path d="M62 300H1058" stroke="#27364d"/>
     <g fill="#d5dfee">
       <text x="62" y="328">512</text><text x="140" y="328">65.8%</text><text x="225" y="328">just now</text>
-      <text x="515" y="328">SUPER + RETURN</text><text x="805" y="328">Terminal</text>
+      <text x="330" y="328">1/1 used</text><text x="610" y="328">SUPER + RETURN</text><text x="845" y="328">Terminal</text>
       <text x="62" y="356">166</text><text x="140" y="356">21.3%</text><text x="225" y="356">2m ago</text>
-      <text x="515" y="356">SUPER + 2</text><text x="805" y="356">Workspace 2</text>
+      <text x="330" y="356">4/10 used</text><text x="610" y="356">workspace-switch</text><text x="845" y="356">Switch to workspace</text>
       <text x="62" y="384">97</text><text x="140" y="384">12.5%</text><text x="225" y="384">1h ago</text>
-      <text x="515" y="384">SUPER + F</text><text x="805" y="384">Full screen</text>
+      <text x="330" y="384">2/4 used</text><text x="610" y="384">window-focus-direction</text><text x="845" y="384">Focus adjacent window</text>
     </g>
     <g fill="#e5bd7d">
       <text x="62" y="412">3</text><text x="140" y="412">0.4%</text><text x="225" y="412">6w ago</text>
-      <text x="350" y="412">REVIEW</text><text x="515" y="412">SUPER + CTRL + Q</text><text x="805" y="412">Calculator</text>
+      <text x="330" y="412">1/10 used</text><text x="450" y="412">REVIEW</text><text x="610" y="412">workspace-move-window</text><text x="845" y="412">Move to workspace</text>
       <text x="62" y="440">0</text><text x="140" y="440">0.0%</text><text x="225" y="440">NEVER</text>
-      <text x="350" y="440" font-size="13">LEARN / REMOVE</text><text x="515" y="440">SUPER + ALT + K</text><text x="805" y="440">Tmux keybindings</text>
+      <text x="330" y="440">0/12 used</text><text x="450" y="440" font-size="13">LEARN / REMOVE</text><text x="610" y="440">window-resize-keyboard</text><text x="845" y="440">Resize (keyboard)</text>
     </g>
   </g>
   <text x="40" y="508" font-family="system-ui, sans-serif" font-size="14" fill="#adc9ee">LOCAL SQLITE  /  NO DAEMON  /  NO TELEMETRY  /  MIT LICENSE</text>
