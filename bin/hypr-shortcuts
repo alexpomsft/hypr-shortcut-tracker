@@ -8,10 +8,12 @@ import os
 import sqlite3
 import sys
 import time
+from contextlib import closing
 from pathlib import Path
 
 
 APP_NAME = "hypr-shortcut-tracker"
+VERSION = "0.1.0"
 STATE_DIR = Path(
     os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
 ) / APP_NAME
@@ -21,25 +23,28 @@ CATALOG_PATH = STATE_DIR / "bindings.tsv"
 
 def connect() -> sqlite3.Connection:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH, timeout=2)
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA busy_timeout=2000")
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS usage (
-            shortcut TEXT PRIMARY KEY,
-            invocation_count INTEGER NOT NULL,
-            first_used_at INTEGER NOT NULL,
-            last_used_at INTEGER NOT NULL
+    connection = sqlite3.connect(DB_PATH, timeout=5)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage (
+                shortcut TEXT PRIMARY KEY,
+                invocation_count INTEGER NOT NULL,
+                first_used_at INTEGER NOT NULL,
+                last_used_at INTEGER NOT NULL
+            )
+            """
         )
-        """
-    )
+    except sqlite3.Error:
+        connection.close()
+        raise
     return connection
 
 
 def record(shortcut: str) -> int:
     now = int(time.time())
-    with connect() as connection:
+    with closing(connect()) as connection, connection:
         connection.execute(
             """
             INSERT INTO usage (
@@ -47,7 +52,8 @@ def record(shortcut: str) -> int:
             ) VALUES (?, 1, ?, ?)
             ON CONFLICT(shortcut) DO UPDATE SET
                 invocation_count = invocation_count + 1,
-                last_used_at = excluded.last_used_at
+                first_used_at = MIN(first_used_at, excluded.first_used_at),
+                last_used_at = MAX(last_used_at, excluded.last_used_at)
             """,
             (shortcut, now, now),
         )
@@ -55,22 +61,28 @@ def record(shortcut: str) -> int:
 
 
 def load_catalog() -> dict[str, str]:
-    bindings: dict[str, str] = {}
+    bindings: dict[str, list[str]] = {}
     try:
         with CATALOG_PATH.open(encoding="utf-8") as catalog:
-            for line in catalog:
+            for line_number, line in enumerate(catalog, 1):
                 shortcut, separator, description = line.rstrip("\n").partition("\t")
-                if shortcut and separator:
-                    bindings[shortcut] = description
+                if not shortcut or not separator or "\t" in description:
+                    raise ValueError(f"Malformed catalog entry: {CATALOG_PATH}:{line_number}")
+                descriptions = bindings.setdefault(shortcut, [])
+                if description and description not in descriptions:
+                    descriptions.append(description)
     except FileNotFoundError:
-        pass
-    return bindings
+        print(
+            f"Binding catalog missing: {CATALOG_PATH}. Install the tracker and reload Hyprland.",
+            file=sys.stderr,
+        )
+    return {shortcut: " / ".join(descriptions) for shortcut, descriptions in bindings.items()}
 
 
 def load_usage() -> dict[str, tuple[int, int, int]]:
     if not DB_PATH.exists():
         return {}
-    with connect() as connection:
+    with closing(connect()) as connection:
         return {
             shortcut: (count, first_used, last_used)
             for shortcut, count, first_used, last_used in connection.execute(
@@ -266,19 +278,25 @@ def reset(confirmed: bool) -> int:
         if answer.lower() not in {"y", "yes"}:
             print("History kept.")
             return 0
-    for suffix in ("", "-shm", "-wal"):
-        try:
-            Path(f"{DB_PATH}{suffix}").unlink()
-        except FileNotFoundError:
-            pass
+    if DB_PATH.exists():
+        with closing(connect()) as connection, connection:
+            connection.execute("DELETE FROM usage")
     print("Shortcut usage history deleted.")
     return 0
+
+
+def positive_int(value: str) -> int:
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Track and report Omarchy/Hyprland shortcut usage."
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     record_parser = subparsers.add_parser("record", help=argparse.SUPPRESS)
@@ -291,8 +309,8 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument(
         "--format", choices=("table", "json", "csv"), default="table"
     )
-    report_parser.add_argument("--stale-days", type=int, default=30)
-    report_parser.add_argument("--limit", type=int)
+    report_parser.add_argument("--stale-days", type=positive_int, default=30)
+    report_parser.add_argument("--limit", type=positive_int)
 
     subparsers.add_parser("status", help="Show tracker paths and totals.")
     reset_parser = subparsers.add_parser("reset", help="Delete usage history.")
@@ -314,5 +332,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
-
+    try:
+        exit_code = main()
+    except (sqlite3.Error, OSError, ValueError) as error:
+        print(f"hypr-shortcuts: {error}", file=sys.stderr)
+        exit_code = 1
+    raise SystemExit(exit_code)

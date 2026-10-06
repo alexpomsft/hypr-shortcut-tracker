@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible tracker or installation problem.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please use synthetic data and redact private paths or descriptions.
+        Do not upload your usage database, full usage report, secrets, or private bindings.
+        Report vulnerabilities through the repository's Security tab instead.
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: Tracker, Python, Omarchy, and Hyprland versions.
+      placeholder: |
+        hypr-shortcuts --version
+        python3 --version
+        omarchy version
+        hyprctl version
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include a minimal synthetic binding if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and errors
+      description: Include relevant stderr or configerrors output, with personal information removed.
+    validations:
+      required: true

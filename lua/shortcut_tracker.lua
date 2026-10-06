@@ -7,7 +7,6 @@ local catalog_path = state_dir .. "/bindings.tsv"
 local executable = home .. "/.local/bin/hypr-shortcuts"
 
 local catalog = {}
-local tracked_triggers = {}
 local started = false
 
 local raw_hl_bind = hl.bind
@@ -22,20 +21,11 @@ end
 local function copy_options(options)
   local copy = {}
   for key, value in pairs(options or {}) do
-    if key ~= "description" then
+    if key ~= "description" and key ~= "repeating" and key ~= "repeat" then
       copy[key] = value
     end
   end
   return copy
-end
-
-local function trigger_signature(keys, options)
-  local opts = options or {}
-  return table.concat({
-    keys,
-    opts.release and "release" or "press",
-    opts.long_press and "long" or "short",
-  }, "\t")
 end
 
 local function add_description(entry, description)
@@ -47,12 +37,7 @@ local function add_description(entry, description)
 end
 
 local function remove_key(keys)
-  for signature, entry in pairs(catalog) do
-    if entry.keys == keys then
-      catalog[signature] = nil
-      tracked_triggers[signature] = nil
-    end
-  end
+  catalog[keys] = nil
 end
 
 function tracker.start()
@@ -69,24 +54,29 @@ function tracker.start()
   end
 
   o.bind = function(keys, description, dispatcher, options)
-    local signature = trigger_signature(keys, options)
-    local entry = catalog[signature]
+    local entry = catalog[keys]
     if not entry then
       entry = {
         keys = keys,
         descriptions = {},
         seen = {},
       }
-      catalog[signature] = entry
+      catalog[keys] = entry
     end
     add_description(entry, description)
 
-    if not tracked_triggers[signature] then
+    local opts = options or {}
+    local trigger_rank = (opts.release and 2 or 0) + (opts.long_press and 1 or 0)
+    -- Prefer an ordinary press over long-press or release-only actions.
+    if not entry.recording or trigger_rank < entry.trigger_rank then
+      if entry.recording then
+        entry.recording:unbind()
+      end
       local command = shell_quote(executable)
         .. " record --key "
         .. shell_quote(keys)
-      raw_hl_bind(keys, hl.dsp.exec_cmd(command), copy_options(options))
-      tracked_triggers[signature] = true
+      entry.recording = raw_hl_bind(keys, hl.dsp.exec_cmd(command), copy_options(options))
+      entry.trigger_rank = trigger_rank
     end
 
     return original_o_bind(keys, description, dispatcher, options)
@@ -112,9 +102,16 @@ function tracker.finish()
   for _, entry in ipairs(entries) do
     local description = table.concat(entry.descriptions, " / ")
     description = description:gsub("[\t\r\n]", " ")
-    file:write(entry.keys, "\t", description, "\n")
+    local written, write_error = file:write(entry.keys, "\t", description, "\n")
+    if not written then
+      file:close()
+      error("Could not write shortcut tracker catalog: " .. tostring(write_error))
+    end
   end
-  file:close()
+  local closed, close_error = file:close()
+  if not closed then
+    error("Could not close shortcut tracker catalog: " .. tostring(close_error))
+  end
 
   local renamed, rename_error = os.rename(temporary_path, catalog_path)
   if not renamed then
@@ -123,4 +120,3 @@ function tracker.finish()
 end
 
 return tracker
-
